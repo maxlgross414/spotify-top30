@@ -1,0 +1,212 @@
+---
+title: "The Next Big Hit"
+authors: Max, Manit, and Eric
+output: html_notebook
+---
+
+Let's begin by importing our dataset and the necesary libraries. 
+```{r}
+data <- read.csv("datasets_456949_861300_top10s.csv")
+install.packages("ggplot2")
+library(ggplot2)
+install.packages('sigmoid')
+library(sigmoid)
+```
+
+We should also take a preliminary look at the dataset provided.
+```{r}
+head(data)
+```
+As you can see, we are given the title, the artist, the genre, the year, and a few more descriptors of songs. Here is a description of those factors, straight from Spotify.
+
+"Beats Per Minute (BPM) - The tempo of the song.
+Energy - The energy of a song - the higher the value, the more energtic. song
+Danceability - The higher the value, the easier it is to dance to this song.
+Loudness - The higher the value, the louder the song.
+Valence - The higher the value, the more positive mood for the song.
+Length - The duration of the song.
+Acoustic - The higher the value the more acoustic the song is.
+Popularity - The higher the value the more popular the song is.
+Rnd - A randon number. Sort by this column to shuffle your playlist."
+
+Data Cleaning Time!
+
+Check for NAs
+```{r}
+sum(is.na(data))
+```
+
+As you can see, there are none.
+Now, we should get rid of all of the outliers. 
+
+
+Energy:
+```{r}
+ggplot(data, aes(x = nrgy))  + geom_boxplot() + coord_flip()
+
+data %>%
+  filter(nrgy < 25) %>%
+  select(X)
+
+clean_data <- data[-c(187, 250, 256, 432, 437, 443),]
+
+```
+
+Danceability:
+```{r}
+ggplot(clean_data, aes(x = dnce))  + geom_boxplot() + coord_flip()
+
+clean_data %>%
+  filter((dnce < 25)) %>%
+  select(X)
+
+clean_data <- clean_data[-c(45),]
+```
+Decibels:
+```{r}
+ggplot(clean_data, aes(x = dB))  + geom_boxplot() + coord_flip()
+
+dB = clean_data$dB
+which(dB < -11)
+
+clean_data <- clean_data[-c(240),]
+```
+Liveliness:
+```{r}
+ggplot(clean_data, aes(x = live))  + geom_boxplot() + coord_flip()
+
+live = clean_data$live
+which(live > 65)
+
+clean_data <- clean_data[-c(13, 64, 102, 176, 355, 401, 582),]
+```
+Valence:
+```{r}
+ggplot(clean_data, aes(x = val))  + geom_boxplot() + coord_flip()
+```
+No outliers?! Great!
+
+Duration:
+```{r}
+ggplot(clean_data, aes(x = dur))  + geom_boxplot() + coord_flip()
+
+dur = clean_data$dur
+which(dur > 350)
+
+clean_data <- clean_data[-c(62, 159, 183, 189, 412),]
+```
+
+Popularity:
+```{r}
+ggplot(clean_data, aes(x = pop))  + geom_boxplot() + coord_flip()
+
+pop = clean_data$pop
+which(pop < 25)
+
+clean_data <- clean_data[-c(49, 99, 134, 255, 348, 349, 424),]
+```
+
+Beats Per Minute:
+```{r}
+ggplot(clean_data, aes(x = bpm))  + geom_boxplot() + coord_flip()
+
+bpm = clean_data$bpm
+which(bpm > 190)
+
+clean_data <- clean_data[-c(188, 235, 260, 298, 437),]
+```
+
+Speechiness:
+```{r}
+ggplot(clean_data, aes(x = spch))  + geom_boxplot() + coord_flip()
+
+spch = clean_data$spch
+which(spch > 35)
+
+clean_data <- clean_data[-c(14, 33, 47, 91, 96, 249, 253, 341, 435, 512),]
+```
+
+Because of this data cleaning, the ranking system will be slightly off as rows were removed. In order to get anything meaningful from the data, we first must assign our own rankings. 
+
+```{r}
+year = clean_data$year
+which(year == 2010) #45 songs
+which(year == 2011) #92 - 47 songs
+which(year == 2012) #126 - 34 songs
+which(year == 2013) #191 - 65 songs
+which(year == 2014) #242 - 51 songs
+which(year == 2015) #332 - 90 songs
+which(year == 2016) #405 - 73 songs
+which(year == 2017) #468 - 63 songs
+which(year == 2018) #531 - 63 songs
+which(year == 2019) #561 - 30 songs
+
+ranking = c(1:45, 1:47, 1:34, 1:65, 1:51, 1:90, 1:73, 1:63, 1:63, 1:30)
+clean_data <- cbind(clean_data, ranking)
+```
+Since 2019 only had thirty songs post-cleaning, we decided to make all years only have thirty songs for analytic symmetry. 
+
+```{r}
+clean_data <- clean_data[-c(31:45, 76:92, 123:126, 157:191, 222:242, 273:332, 363:405, 436:468, 499:531),]
+```
+
+One thing that we believed to be important was that more recent years should be weighted more importantly than older years. This is because what would make a song chart in 2010 is different than what would make a song chart in 2020. You can see that below in a few diagrams.
+
+```{r}
+ggplot(clean_data, aes(x = year, y = acous))+geom_point(colour = 'blue')+
+  geom_smooth(method = 'lm',colour = 'red')
+
+ggplot(clean_data, aes(x = year, y = dur))+geom_point(colour = 'blue')+
+  geom_smooth(method = 'lm',colour = 'red')
+
+ggplot(clean_data, aes(x = nrgy, y = ranking))+geom_point(colour = 'green')+
+  geom_smooth(method = 'lm',colour = 'purple')
+```
+As visible, acousticness has gone up at the same time that duration and valence went down. Below is the code for weighting by year. 
+
+```{r}
+for (i in 1:nrow(clean_data)){
+  feature = clean_data[i,]
+  for (i in 1:(11-(2020-feature$year))){
+    clean_data[nrow(clean_data)+1,]=feature
+  }
+}
+```
+
+Once that's done, let's look at a linear regression model that takes our observations and tries to predict rank based on those numbers. 
+
+```{r}
+model = lm(ranking~dB+dur+live+spch+nrgy+dnce+val+acous+bpm, data = clean_data)
+summary(model)
+```
+
+```{r}
+significance<-c(5,5,1,5,1,1,1,5,2)
+
+range<-c(143,72,71,9,72,94,290,92,42)
+
+prediction<-c(mean(clean_data8[,6]),mean(clean_data8[,7]),mean(clean_data8[,8]),mean(clean_data8[,9]),mean(clean_data8[,10]),mean(clean_data8[,11]),mean(clean_data8[,12]),mean(clean_data8[,13]),mean(clean_data8[,14]))
+print(prediction)
+
+song_predict <- function(song){
+  count<-0
+  for (i in 1:9){
+  
+  count=count+ significance[i]*(1-(prediction[i]-song[i])/range[i])
+  
+  print(count/sum(significance))
+
+  }
+}
+
+#Bpm, nrgy, dnce, dB, liveness, valence, duration, acousticness, speech
+#Be Kind: 94, 63, 63, 7, 20, 45, 253, 1, 14
+song1=c(149, 68, 49, 7, 59, 65, 111, 9, 14)
+
+
+song_predict(song1)
+```
+
+
+ 
+ 
